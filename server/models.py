@@ -29,3 +29,27 @@ class TaskDB(Base):
     created_at = Column(String)
 
     due_date = Column(String)
+
+class ReminderDB(Base):
+    __tablename__ = "reminders"
+
+    id = Column(Integer, primary_key=True)
+
+    title = Column(String)
+
+    due_date = Column(String)
+
+    completed = Column(Boolean, default=False)
+
+class DocumentDB(Base):
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True)
+
+    name = Column(String)
+
+    category = Column(String)
+
+    expiry_date = Column(String)
+
+    notes = Column(Text)

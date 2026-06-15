@@ -1,7 +1,7 @@
 from fastapi import Depends
 from sqlalchemy.orm import Session
 from database import engine, Base, SessionLocal
-from models import TaskDB, BillDB
+from models import TaskDB, BillDB, ReminderDB, DocumentDB
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -57,6 +57,40 @@ class Bill(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ReminderCreate(BaseModel):
+    title: str
+    due_date: str
+
+
+class Reminder(BaseModel):
+    id: int
+    title: str
+    due_date: str
+    completed: bool
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentCreate(BaseModel):
+    name: str
+    category: str
+    expiry_date: str | None = None
+    notes: str = ""
+
+
+class Document(BaseModel):
+    id: int
+    name: str
+    category: str
+    expiry_date: str | None = None
+    notes: str
+
+    class Config:
+        from_attributes = True
+
 
 def get_db():
     db = SessionLocal()
@@ -340,4 +374,123 @@ def get_dashboard(
             "paid": paid_bills,
             "unpaid": unpaid_bills
         }
+    }
+
+@app.post("/reminders/", response_model=Reminder)
+def create_reminder(
+    reminder: ReminderCreate,
+    db: Session = Depends(get_db)
+):
+    new_reminder = ReminderDB(
+        title=reminder.title,
+        due_date=reminder.due_date,
+        completed=False
+    )
+
+    db.add(new_reminder)
+    db.commit()
+    db.refresh(new_reminder)
+
+    return new_reminder
+
+@app.get("/reminders/", response_model=List[Reminder])
+def get_reminders(
+    db: Session = Depends(get_db)
+):
+    return db.query(ReminderDB).all()
+
+@app.put("/reminders/{reminder_id}/")
+def complete_reminder(
+    reminder_id: int,
+    db: Session = Depends(get_db)
+):
+    reminder = (
+        db.query(ReminderDB)
+        .filter(ReminderDB.id == reminder_id)
+        .first()
+    )
+
+    if not reminder:
+        raise HTTPException(
+            status_code=404,
+            detail="Reminder not found"
+        )
+
+    reminder.completed = not reminder.completed
+
+    db.commit()
+    db.refresh(reminder)
+
+    return reminder
+
+@app.delete("/reminders/{reminder_id}/")
+def delete_reminder(
+    reminder_id: int,
+    db: Session = Depends(get_db)
+):
+    reminder = (
+        db.query(ReminderDB)
+        .filter(ReminderDB.id == reminder_id)
+        .first()
+    )
+
+    if not reminder:
+        raise HTTPException(
+            status_code=404,
+            detail="Reminder not found"
+        )
+
+    db.delete(reminder)
+    db.commit()
+
+    return {
+        "message": "Reminder deleted"
+    }
+
+@app.post("/documents/", response_model=Document)
+def create_document(
+    document: DocumentCreate,
+    db: Session = Depends(get_db)
+):
+    new_document = DocumentDB(
+        name=document.name,
+        category=document.category,
+        expiry_date=document.expiry_date,
+        notes=document.notes
+    )
+
+    db.add(new_document)
+    db.commit()
+    db.refresh(new_document)
+
+    return new_document
+
+@app.get("/documents/", response_model=List[Document])
+def get_documents(
+    db: Session = Depends(get_db)
+):
+    return db.query(DocumentDB).all()
+
+@app.delete("/documents/{document_id}/")
+def delete_document(
+    document_id: int,
+    db: Session = Depends(get_db)
+):
+    document = (
+        db.query(DocumentDB)
+        .filter(DocumentDB.id == document_id)
+        .first()
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
+
+    db.delete(document)
+    db.commit()
+
+    return {
+        "message": "Document deleted"
     }

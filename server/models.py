@@ -58,6 +58,9 @@ class UserDB(Base):
         "DocumentDB",
         back_populates="user"
     )
+    bio = Column(Text, default="")
+    avatar_url = Column(String, default="")
+    timezone = Column(String, default="UTC")
 
 
 class BillDB(Base):

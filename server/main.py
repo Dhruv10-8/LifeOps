@@ -1,88 +1,70 @@
-#IMPORTS
+# IMPORTS
 
-from fastapi import (
-    FastAPI,
-    Depends,
-    HTTPException
-)
+from fastapi import FastAPI, Depends, HTTPException
 
 from fastapi.middleware.cors import CORSMiddleware
 
-from fastapi.security import (
-    OAuth2PasswordBearer,
-    OAuth2PasswordRequestForm
-)
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from sqlalchemy.orm import Session
 
 from jose import jwt, JWTError
 
-from datetime import (
-    datetime,
-    timedelta
-)
+from datetime import datetime, timedelta
 
 from typing import List
 
 from pydantic import BaseModel
 
-from database import (
-    engine,
-    Base,
-    SessionLocal
-)
+from database import engine, Base, SessionLocal
 
-from models import (
-    UserDB,
-    TaskDB,
-    BillDB,
-    ReminderDB,
-    DocumentDB
-)
+from models import UserDB, TaskDB, BillDB, ReminderDB, DocumentDB
 
-from auth import (
-    hash_password,
-    verify_password
-)
+from auth import hash_password, verify_password
 
-#APP SETUP
-app = FastAPI(
-    title="LifeOps API",
-    version="0.1"
-)
+# APP SETUP
+app = FastAPI(title="LifeOps API", version="0.1")
 
 Base.metadata.create_all(bind=engine)
 
-#CORS
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
-#AUTH CONSTANTS
+# AUTH CONSTANTS
 SECRET_KEY = "change-this-later"
 
 ALGORITHM = "HS256"
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/auth/login"
-)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-#PYDANTIC
+
+class UserProfileUpdate(BaseModel):
+    name: str
+    bio: str = ""
+    avatar_url: str = ""
+    timezone: str = "UTC"
+
+
+# PYDANTIC
 class UserRegister(BaseModel):
     name: str
     email: str
     password: str
 
+
 class TaskCreate(BaseModel):
     title: str
     priority: int = 1
     due_date: str | None = None
+
 
 class Task(BaseModel):
     id: int
@@ -97,10 +79,12 @@ class Task(BaseModel):
     class Config:
         from_attributes = True
 
+
 class BillCreate(BaseModel):
     name: str
     amount: int
     due_date: str
+
 
 class Bill(BaseModel):
     id: int
@@ -112,9 +96,11 @@ class Bill(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ReminderCreate(BaseModel):
     title: str
     due_date: str
+
 
 class Reminder(BaseModel):
     id: int
@@ -125,11 +111,13 @@ class Reminder(BaseModel):
     class Config:
         from_attributes = True
 
+
 class DocumentCreate(BaseModel):
     name: str
     category: str
     expiry_date: str | None = None
     notes: str = ""
+
 
 class Document(BaseModel):
     id: int
@@ -141,7 +129,13 @@ class Document(BaseModel):
     class Config:
         from_attributes = True
 
-#DB DEPENDENCY
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+
+
+# DB DEPENDENCY
 def get_db():
     db = SessionLocal()
 
@@ -151,48 +145,29 @@ def get_db():
     finally:
         db.close()
 
-#JWT HELPERS
+
+# JWT HELPERS
 def create_access_token(data: dict):
 
     to_encode = data.copy()
 
-    expire = (
-        datetime.utcnow()
-        + timedelta(
-            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
-        )
-    )
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode.update(
-        {
-            "exp": expire
-        }
-    )
+    to_encode.update({"exp": expire})
 
-    return jwt.encode(
-        to_encode,
-        SECRET_KEY,
-        algorithm=ALGORITHM
-    )
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-#CURRENT USER
+
+# CURRENT USER
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
 ):
 
-    credentials_exception = HTTPException(
-        status_code=401,
-        detail="Invalid token"
-    )
+    credentials_exception = HTTPException(status_code=401, detail="Invalid token")
 
     try:
 
-        payload = jwt.decode(
-            token,
-            SECRET_KEY,
-            algorithms=[ALGORITHM]
-        )
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
         user_id = payload.get("sub")
 
@@ -202,20 +177,15 @@ def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    user = (
-        db.query(UserDB)
-        .filter(
-            UserDB.id == int(user_id)
-        )
-        .first()
-    )
+    user = db.query(UserDB).filter(UserDB.id == int(user_id)).first()
 
     if user is None:
         raise credentials_exception
 
     return user
 
-#UTILITY FUNCTION
+
+# UTILITY FUNCTION
 def compute_score(task):
 
     score = task.priority * 10
@@ -227,13 +197,9 @@ def compute_score(task):
 
         try:
 
-            due = datetime.fromisoformat(
-                task.due_date
-            )
+            due = datetime.fromisoformat(task.due_date)
 
-            days = (
-                due - datetime.utcnow()
-            ).days
+            days = (due - datetime.utcnow()).days
 
             if days <= 0:
                 score += 40
@@ -252,48 +218,32 @@ def compute_score(task):
 
     return score
 
-#ROUTES
+
+# ROUTES
 @app.get("/")
 def root():
-    return {
-        "message": "LifeOps Backend Running"
-    }
+    return {"message": "LifeOps Backend Running"}
+
 
 @app.get("/db-test")
 def db_test():
-    return {
-        "status": "database connected"
-    }
+    return {"status": "database connected"}
 
-#USER ROUTES
+
+# USER ROUTES
+
 
 @app.post("/auth/register")
-def register_user(
-    user: UserRegister,
-    db: Session = Depends(get_db)
-):
+def register_user(user: UserRegister, db: Session = Depends(get_db)):
 
-    existing_user = (
-        db.query(UserDB)
-        .filter(
-            UserDB.email == user.email
-        )
-        .first()
-    )
+    existing_user = db.query(UserDB).filter(UserDB.email == user.email).first()
 
     if existing_user:
 
-        raise HTTPException(
-            status_code=400,
-            detail="Email already exists"
-        )
+        raise HTTPException(status_code=400, detail="Email already exists")
 
     new_user = UserDB(
-        name=user.name,
-        email=user.email,
-        password_hash=hash_password(
-            user.password
-        )
+        name=user.name, email=user.email, password_hash=hash_password(user.password)
     )
 
     db.add(new_user)
@@ -302,97 +252,55 @@ def register_user(
 
     db.refresh(new_user)
 
-    return {
-        "message": "User created",
-        "user_id": new_user.id
-    }
+    return {"message": "User created", "user_id": new_user.id}
+
 
 @app.post("/auth/login")
 def login_user(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
+    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
 ):
 
-    db_user = (
-        db.query(UserDB)
-        .filter(
-            UserDB.email == form_data.username
-        )
-        .first()
-    )
+    db_user = db.query(UserDB).filter(UserDB.email == form_data.username).first()
 
     if not db_user:
 
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials"
-        )
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    if not verify_password(
-        form_data.password,
-        db_user.password_hash
-    ):
+    if not verify_password(form_data.password, db_user.password_hash):
 
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials"
-        )
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_access_token(
-        {
-            "sub": str(db_user.id)
-        }
-    )
+    token = create_access_token({"sub": str(db_user.id)})
 
-    return {
-        "access_token": token,
-        "token_type": "bearer"
-    }
+    return {"access_token": token, "token_type": "bearer"}
+
 
 @app.get("/auth/me")
-def get_me(
-    current_user: UserDB = Depends(
-        get_current_user
-    )
-):
+def get_me(current_user: UserDB = Depends(get_current_user)):
 
     return {
         "id": current_user.id,
         "name": current_user.name,
-        "email": current_user.email
+        "email": current_user.email,
     }
 
-#TASK ROUTES
 
-@app.get(
-    "/tasks/",
-    response_model=List[Task]
-)
+# TASK ROUTES
+
+
+@app.get("/tasks/", response_model=List[Task])
 def get_tasks(
-    db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    db: Session = Depends(get_db), current_user: UserDB = Depends(get_current_user)
 ):
 
-    return (
-        db.query(TaskDB)
-        .filter(
-            TaskDB.user_id == current_user.id
-        )
-        .all()
-    )
+    return db.query(TaskDB).filter(TaskDB.user_id == current_user.id).all()
 
-@app.post(
-    "/tasks/",
-    response_model=Task
-)
+
+@app.post("/tasks/", response_model=Task)
 def create_task(
     task: TaskCreate,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     new_task = TaskDB(
@@ -401,7 +309,7 @@ def create_task(
         priority=task.priority,
         created_at=datetime.utcnow().isoformat(),
         due_date=task.due_date,
-        user_id=current_user.id
+        user_id=current_user.id,
     )
 
     db.add(new_task)
@@ -412,33 +320,23 @@ def create_task(
 
     return new_task
 
-@app.put(
-    "/tasks/{task_id}",
-    response_model=Task
-)
+
+@app.put("/tasks/{task_id}", response_model=Task)
 def toggle_task(
     task_id: int,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     task = (
         db.query(TaskDB)
-        .filter(
-            TaskDB.id == task_id,
-            TaskDB.user_id == current_user.id
-        )
+        .filter(TaskDB.id == task_id, TaskDB.user_id == current_user.id)
         .first()
     )
 
     if not task:
 
-        raise HTTPException(
-            status_code=404,
-            detail="Task not found"
-        )
+        raise HTTPException(status_code=404, detail="Task not found")
 
     task.completed = not task.completed
 
@@ -448,98 +346,59 @@ def toggle_task(
 
     return task
 
+
 @app.delete("/tasks/{task_id}")
 def delete_task(
     task_id: int,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     task = (
         db.query(TaskDB)
-        .filter(
-            TaskDB.id == task_id,
-            TaskDB.user_id == current_user.id
-        )
+        .filter(TaskDB.id == task_id, TaskDB.user_id == current_user.id)
         .first()
     )
 
     if not task:
 
-        raise HTTPException(
-            status_code=404,
-            detail="Task not found"
-        )
+        raise HTTPException(status_code=404, detail="Task not found")
 
     db.delete(task)
 
     db.commit()
 
-    return {
-        "message": "Task deleted"
-    }
+    return {"message": "Task deleted"}
+
 
 @app.get("/focus/")
 def get_focus(
-    db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    db: Session = Depends(get_db), current_user: UserDB = Depends(get_current_user)
 ):
 
-    tasks = (
-        db.query(TaskDB)
-        .filter(
-            TaskDB.user_id == current_user.id
-        )
-        .all()
-    )
+    tasks = db.query(TaskDB).filter(TaskDB.user_id == current_user.id).all()
 
     if not tasks:
 
-        return {
-            "focus_task": None,
-            "reason": "No tasks available"
-        }
+        return {"focus_task": None, "reason": "No tasks available"}
 
-    active_tasks = [
-        task
-        for task in tasks
-        if not task.completed
-    ]
+    active_tasks = [task for task in tasks if not task.completed]
 
     if not active_tasks:
 
-        return {
-            "focus_task": None,
-            "reason": "All tasks completed"
-        }
+        return {"focus_task": None, "reason": "All tasks completed"}
 
-    focus_task = max(
-        active_tasks,
-        key=compute_score
-    )
+    focus_task = max(active_tasks, key=compute_score)
 
-    return {
-        "focus_task": focus_task.title,
-        "score": compute_score(
-            focus_task
-        )
-    }
+    return {"focus_task": focus_task.title, "score": compute_score(focus_task)}
 
-#BILL ROUTES
-@app.post(
-    "/bills/",
-    response_model=Bill
-)
+
+# BILL ROUTES
+@app.post("/bills/", response_model=Bill)
 def create_bill(
     bill: BillCreate,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     new_bill = BillDB(
@@ -547,7 +406,7 @@ def create_bill(
         amount=bill.amount,
         due_date=bill.due_date,
         paid=False,
-        user_id=current_user.id
+        user_id=current_user.id,
     )
 
     db.add(new_bill)
@@ -558,49 +417,31 @@ def create_bill(
 
     return new_bill
 
-@app.get(
-    "/bills/",
-    response_model=List[Bill]
-)
+
+@app.get("/bills/", response_model=List[Bill])
 def get_bills(
-    db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    db: Session = Depends(get_db), current_user: UserDB = Depends(get_current_user)
 ):
 
-    return (
-        db.query(BillDB)
-        .filter(
-            BillDB.user_id == current_user.id
-        )
-        .all()
-    )
+    return db.query(BillDB).filter(BillDB.user_id == current_user.id).all()
+
 
 @app.put("/bills/{bill_id}/pay")
 def pay_bill(
     bill_id: int,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     bill = (
         db.query(BillDB)
-        .filter(
-            BillDB.id == bill_id,
-            BillDB.user_id == current_user.id
-        )
+        .filter(BillDB.id == bill_id, BillDB.user_id == current_user.id)
         .first()
     )
 
     if not bill:
 
-        raise HTTPException(
-            status_code=404,
-            detail="Bill not found"
-        )
+        raise HTTPException(status_code=404, detail="Bill not found")
 
     bill.paid = True
 
@@ -610,58 +451,46 @@ def pay_bill(
 
     return bill
 
+
 @app.delete("/bills/{bill_id}")
 def delete_bill(
     bill_id: int,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     bill = (
         db.query(BillDB)
-        .filter(
-            BillDB.id == bill_id,
-            BillDB.user_id == current_user.id
-        )
+        .filter(BillDB.id == bill_id, BillDB.user_id == current_user.id)
         .first()
     )
 
     if not bill:
 
-        raise HTTPException(
-            status_code=404,
-            detail="Bill not found"
-        )
+        raise HTTPException(status_code=404, detail="Bill not found")
 
     db.delete(bill)
 
     db.commit()
 
-    return {
-        "message": "Bill deleted"
-    }
+    return {"message": "Bill deleted"}
 
-#REMINDER ROUTES
 
-@app.post(
-    "/reminders/",
-    response_model=Reminder
-)
+# REMINDER ROUTES
+
+
+@app.post("/reminders/", response_model=Reminder)
 def create_reminder(
     reminder: ReminderCreate,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     new_reminder = ReminderDB(
         title=reminder.title,
         due_date=reminder.due_date,
         completed=False,
-        user_id=current_user.id
+        user_id=current_user.id,
     )
 
     db.add(new_reminder)
@@ -672,53 +501,33 @@ def create_reminder(
 
     return new_reminder
 
-@app.get(
-    "/reminders/",
-    response_model=List[Reminder]
-)
+
+@app.get("/reminders/", response_model=List[Reminder])
 def get_reminders(
-    db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    db: Session = Depends(get_db), current_user: UserDB = Depends(get_current_user)
 ):
 
-    return (
-        db.query(ReminderDB)
-        .filter(
-            ReminderDB.user_id == current_user.id
-        )
-        .all()
-    )
+    return db.query(ReminderDB).filter(ReminderDB.user_id == current_user.id).all()
+
 
 @app.put("/reminders/{reminder_id}")
 def complete_reminder(
     reminder_id: int,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     reminder = (
         db.query(ReminderDB)
-        .filter(
-            ReminderDB.id == reminder_id,
-            ReminderDB.user_id == current_user.id
-        )
+        .filter(ReminderDB.id == reminder_id, ReminderDB.user_id == current_user.id)
         .first()
     )
 
     if not reminder:
 
-        raise HTTPException(
-            status_code=404,
-            detail="Reminder not found"
-        )
+        raise HTTPException(status_code=404, detail="Reminder not found")
 
-    reminder.completed = (
-        not reminder.completed
-    )
+    reminder.completed = not reminder.completed
 
     db.commit()
 
@@ -726,54 +535,37 @@ def complete_reminder(
 
     return reminder
 
+
 @app.delete("/reminders/{reminder_id}")
 def delete_reminder(
     reminder_id: int,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     reminder = (
         db.query(ReminderDB)
-        .filter(
-            ReminderDB.id == reminder_id,
-            ReminderDB.user_id == current_user.id
-        )
+        .filter(ReminderDB.id == reminder_id, ReminderDB.user_id == current_user.id)
         .first()
     )
 
     if not reminder:
 
-        raise HTTPException(
-            status_code=404,
-            detail="Reminder not found"
-        )
+        raise HTTPException(status_code=404, detail="Reminder not found")
 
     db.delete(reminder)
 
     db.commit()
 
-    return {
-        "message": "Reminder deleted"
-    }
+    return {"message": "Reminder deleted"}
+
 
 @app.get("/upcoming-reminders/")
 def get_upcoming_reminders(
-    db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    db: Session = Depends(get_db), current_user: UserDB = Depends(get_current_user)
 ):
 
-    reminders = (
-        db.query(ReminderDB)
-        .filter(
-            ReminderDB.user_id == current_user.id
-        )
-        .all()
-    )
+    reminders = db.query(ReminderDB).filter(ReminderDB.user_id == current_user.id).all()
 
     upcoming = []
 
@@ -784,13 +576,9 @@ def get_upcoming_reminders(
 
         try:
 
-            due = datetime.fromisoformat(
-                reminder.due_date
-            )
+            due = datetime.fromisoformat(reminder.due_date)
 
-            days_left = (
-                due - datetime.utcnow()
-            ).days
+            days_left = (due - datetime.utcnow()).days
 
             if days_left <= 7:
 
@@ -799,29 +587,22 @@ def get_upcoming_reminders(
                         "id": reminder.id,
                         "title": reminder.title,
                         "due_date": reminder.due_date,
-                        "days_remaining": days_left
+                        "days_remaining": days_left,
                     }
                 )
 
         except:
             pass
 
-    return {
-        "count": len(upcoming),
-        "reminders": upcoming
-    }
+    return {"count": len(upcoming), "reminders": upcoming}
 
-#DOCUMENT APIs
-@app.post(
-    "/documents/",
-    response_model=Document
-)
+
+# DOCUMENT APIs
+@app.post("/documents/", response_model=Document)
 def create_document(
     document: DocumentCreate,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     new_document = DocumentDB(
@@ -829,7 +610,7 @@ def create_document(
         category=document.category,
         expiry_date=document.expiry_date,
         notes=document.notes,
-        user_id=current_user.id
+        user_id=current_user.id,
     )
 
     db.add(new_document)
@@ -840,73 +621,45 @@ def create_document(
 
     return new_document
 
-@app.get(
-    "/documents/",
-    response_model=List[Document]
-)
+
+@app.get("/documents/", response_model=List[Document])
 def get_documents(
-    db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    db: Session = Depends(get_db), current_user: UserDB = Depends(get_current_user)
 ):
 
-    return (
-        db.query(DocumentDB)
-        .filter(
-            DocumentDB.user_id == current_user.id
-        )
-        .all()
-    )
+    return db.query(DocumentDB).filter(DocumentDB.user_id == current_user.id).all()
+
 
 @app.delete("/documents/{document_id}")
 def delete_document(
     document_id: int,
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    current_user: UserDB = Depends(get_current_user),
 ):
 
     document = (
         db.query(DocumentDB)
-        .filter(
-            DocumentDB.id == document_id,
-            DocumentDB.user_id == current_user.id
-        )
+        .filter(DocumentDB.id == document_id, DocumentDB.user_id == current_user.id)
         .first()
     )
 
     if not document:
 
-        raise HTTPException(
-            status_code=404,
-            detail="Document not found"
-        )
+        raise HTTPException(status_code=404, detail="Document not found")
 
     db.delete(document)
 
     db.commit()
 
-    return {
-        "message": "Document deleted"
-    }
+    return {"message": "Document deleted"}
+
 
 @app.get("/expiring-documents/")
 def get_expiring_documents(
-    db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    db: Session = Depends(get_db), current_user: UserDB = Depends(get_current_user)
 ):
 
-    documents = (
-        db.query(DocumentDB)
-        .filter(
-            DocumentDB.user_id == current_user.id
-        )
-        .all()
-    )
+    documents = db.query(DocumentDB).filter(DocumentDB.user_id == current_user.id).all()
 
     expiring = []
 
@@ -917,13 +670,9 @@ def get_expiring_documents(
 
         try:
 
-            expiry = datetime.fromisoformat(
-                doc.expiry_date
-            )
+            expiry = datetime.fromisoformat(doc.expiry_date)
 
-            days_left = (
-                expiry - datetime.utcnow()
-            ).days
+            days_left = (expiry - datetime.utcnow()).days
 
             if days_left <= 90:
 
@@ -933,108 +682,110 @@ def get_expiring_documents(
                         "name": doc.name,
                         "category": doc.category,
                         "expiry_date": doc.expiry_date,
-                        "days_remaining": days_left
+                        "days_remaining": days_left,
                     }
                 )
 
         except:
             pass
 
-    return {
-        "count": len(expiring),
-        "documents": expiring
-    }
+    return {"count": len(expiring), "documents": expiring}
 
-#Dashboard API
+
+# Dashboard API
 @app.get("/dashboard/")
 def get_dashboard(
-    db: Session = Depends(get_db),
-    current_user: UserDB = Depends(
-        get_current_user
-    )
+    db: Session = Depends(get_db), current_user: UserDB = Depends(get_current_user)
 ):
 
-    tasks = (
-        db.query(TaskDB)
-        .filter(
-            TaskDB.user_id == current_user.id
-        )
-        .all()
-    )
+    tasks = db.query(TaskDB).filter(TaskDB.user_id == current_user.id).all()
 
-    bills = (
-        db.query(BillDB)
-        .filter(
-            BillDB.user_id == current_user.id
-        )
-        .all()
-    )
+    bills = db.query(BillDB).filter(BillDB.user_id == current_user.id).all()
 
-    reminders = (
-        db.query(ReminderDB)
-        .filter(
-            ReminderDB.user_id == current_user.id
-        )
-        .all()
-    )
+    reminders = db.query(ReminderDB).filter(ReminderDB.user_id == current_user.id).all()
 
-    documents = (
-        db.query(DocumentDB)
-        .filter(
-            DocumentDB.user_id == current_user.id
-        )
-        .all()
-    )
+    documents = db.query(DocumentDB).filter(DocumentDB.user_id == current_user.id).all()
 
-    active_tasks = [
-        t
-        for t in tasks
-        if not t.completed
-    ]
+    active_tasks = [t for t in tasks if not t.completed]
 
     focus_task = None
 
     if active_tasks:
 
-        focus_task = max(
-            active_tasks,
-            key=compute_score
-        )
+        focus_task = max(active_tasks, key=compute_score)
 
     return {
         "user": current_user.name,
-
-        "focus_task": (
-            focus_task.title
-            if focus_task
-            else None
-        ),
-
+        "focus_task": (focus_task.title if focus_task else None),
         "tasks": {
             "total": len(tasks),
-            "completed": len(
-                [t for t in tasks if t.completed]
-            ),
-            "pending": len(
-                [t for t in tasks if not t.completed]
-            )
+            "completed": len([t for t in tasks if t.completed]),
+            "pending": len([t for t in tasks if not t.completed]),
         },
-
         "bills": {
             "total": len(bills),
-            "paid": len(
-                [b for b in bills if b.paid]
-            ),
-            "unpaid": len(
-                [b for b in bills if not b.paid]
-            )
+            "paid": len([b for b in bills if b.paid]),
+            "unpaid": len([b for b in bills if not b.paid]),
         },
-
-        "documents": {
-            "total": len(documents)
-        },
-
-        "reminders": {
-            "total": len(reminders)
-        }
+        "documents": {"total": len(documents)},
+        "reminders": {"total": len(reminders)},
     }
+
+
+@app.get("/users/me")
+def get_profile(current_user: UserDB = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "name": current_user.name,
+        "email": current_user.email,
+        "bio": current_user.bio,
+        "avatar_url": current_user.avatar_url,
+        "timezone": current_user.timezone,
+        "provider": current_user.provider,
+    }
+
+
+@app.put("/users/me")
+def update_profile(
+    data: UserProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+
+    current_user.name = data.name
+    current_user.bio = data.bio
+    current_user.avatar_url = data.avatar_url
+    current_user.timezone = data.timezone
+
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
+
+
+@app.put("/users/change-password")
+def change_password(
+    data: PasswordChange,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+
+    if not verify_password(data.old_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Wrong password")
+
+    current_user.password_hash = hash_password(data.new_password)
+
+    db.commit()
+
+    return {"message": "Password updated"}
+
+
+@app.delete("/users/me")
+def delete_account(
+    db: Session = Depends(get_db), current_user: UserDB = Depends(get_current_user)
+):
+
+    db.delete(current_user)
+    db.commit()
+
+    return {"message": "Account deleted"}
